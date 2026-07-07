@@ -9,7 +9,7 @@
 -- local SaveManager = loadstring(game:HttpGet("LOCAL_REPO/addons/SaveManager.lua"))()
 
 -- For local testing, require the files directly
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/your-repo/Novoline/main/Library.lua"))() or -- Fallback to inline
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/HolexDeveloper/NovolineUILibrary/refs/heads/main/Library.lua"))() or -- Fallback to inline
 (function()
     -- Inline Library code would go here for fully local testing
     -- This is just a placeholder structure
