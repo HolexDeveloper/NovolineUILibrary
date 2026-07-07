@@ -33,6 +33,7 @@ Novoline.ToggleKeybind = nil
 Novoline.UnloadCallbacks = {}
 Novoline.NotifySide = "Left"
 Novoline.DPIScale = 1
+Novoline.Minimized = false
 
 -- Default Color Scheme
 Novoline.Scheme = {
@@ -129,9 +130,7 @@ end
 function Novoline:Unload()
     if self.Unloaded then return end
     self.Unloaded = true
-    for _, cb in ipairs(self.UnloadCallbacks) do
-        pcall(cb)
-    end
+    for _, cb in ipairs(self.UnloadCallbacks) do pcall(cb) end
     for _, conn in ipairs(self.Connections) do
         pcall(function()
             if typeof(conn) == "RBXScriptConnection" then conn:Disconnect()
@@ -153,9 +152,6 @@ end
 
 function Novoline:SetDPIScale(scale)
     self.DPIScale = scale / 100
-    if self.GUI then
-        self.GUI.DisplayOrder = 999
-    end
 end
 
 -- Search Functionality
@@ -247,9 +243,7 @@ local function CreateTooltip(instance, text)
         local pos = UserInputService:GetMouseLocation()
         tooltip.Position = UDim2.new(0, pos.X + 10, 0, pos.Y - 30)
     end)
-    instance.MouseLeave:Connect(function()
-        tooltip.Visible = false
-    end)
+    instance.MouseLeave:Connect(function() tooltip.Visible = false end)
     Connect(UserInputService.InputChanged, function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement and tooltip.Visible then
             local pos = input.Position
@@ -303,10 +297,15 @@ function Novoline:CreateWindow(config)
     Create("Frame", { Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = self.Scheme.TopbarColor, BorderSizePixel = 0, ZIndex = 10 }, topbar)
 
     local titleText = Create("TextLabel", {
-        Text = config.Title or "Novoline", Size = UDim2.new(0, 100, 1, 0), Position = UDim2.new(0, 12, 0, 0),
-        BackgroundTransparency = 1, TextColor3 = self.Scheme.FontColor, TextSize = 13,
+        Text = tostring(config.Title or "Novoline"),
+        Size = UDim2.new(0, 100, 1, 0),
+        Position = UDim2.new(0, 12, 0, 0),
+        BackgroundTransparency = 1,
+        TextColor3 = self.Scheme.FontColor,
+        TextSize = 13,
         FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold),
-        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 11
     }, topbar)
     RegisterColor(titleText, "TextColor3", "FontColor")
 
@@ -323,48 +322,39 @@ function Novoline:CreateWindow(config)
     }, searchFrame)
     searchBox:GetPropertyChangedSignal("Text"):Connect(function() self:SearchElements(searchBox.Text) end)
 
-    local minimizeBtn = Create("TextButton", { Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -50, 0.5, -12), BackgroundTransparency = 1, Text = "—", TextColor3 = self.Scheme.TextMuted, TextSize = 12, ZIndex = 11 }, topbar)
-    local closeBtn = Create("TextButton", { Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -26, 0.5, -12), BackgroundTransparency = 1, Text = "×", TextColor3 = self.Scheme.TextMuted, TextSize = 16, ZIndex = 11 }, topbar)
+    -- Close Button Only (No Minimize)
+    local closeBtn = Create("TextButton", { Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(1, -32, 0.5, -14), BackgroundTransparency = 1, Text = "×", TextColor3 = self.Scheme.TextMuted, TextSize = 18, ZIndex = 11 }, topbar)
 
-    minimizeBtn.MouseEnter:Connect(function() Tween(minimizeBtn, {TextColor3 = self.Scheme.FontColor}, 0.1) end)
-    minimizeBtn.MouseLeave:Connect(function() Tween(minimizeBtn, {TextColor3 = self.Scheme.TextMuted}, 0.1) end)
     closeBtn.MouseEnter:Connect(function() Tween(closeBtn, {TextColor3 = Color3.fromRGB(255, 85, 85)}, 0.1) end)
     closeBtn.MouseLeave:Connect(function() Tween(closeBtn, {TextColor3 = self.Scheme.TextMuted}, 0.1) end)
-
-    local isMinimized = false
-    local contentArea, sidebarArea
-
-    minimizeBtn.MouseButton1Click:Connect(function()
-        isMinimized = not isMinimized
-        if contentArea and sidebarArea then
-            if isMinimized then
-                Tween(sidebarArea, {Size = UDim2.new(0, 110, 0, 0)}, 0.25)
-                Tween(contentArea, {Size = UDim2.new(1, -110, 0, 0)}, 0.25)
-            else
-                Tween(sidebarArea, {Size = UDim2.new(0, 110, 1, -57)}, 0.25)
-                Tween(contentArea, {Size = UDim2.new(1, -110, 1, -57)}, 0.25)
-            end
-        end
-    end)
 
     closeBtn.MouseButton1Click:Connect(function()
         Tween(mainWindow, {Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0)}, 0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In)
         task.delay(0.35, function() self:Unload() end)
     end)
 
-    -- Drag Logic
-    local dragging, dragStart, startPos
+    -- Drag Logic (Fixed)
+    local dragging = false
+    local dragStart, startPos
+    
     topbar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            if input.Target == minimizeBtn or input.Target == closeBtn or input.Target == searchBox or searchFrame:IsAncestorOf(input.Target) then return end
+            -- Don't drag if clicking on buttons or search
+            if input.Target == closeBtn then return end
+            if input.Target == searchBox or searchFrame:IsAncestorOf(input.Target) then return end
+            
             dragging = true
             dragStart = input.Position
             startPos = mainWindow.Position
         end
     end)
+    
     topbar.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
     end)
+    
     Connect(UserInputService.InputChanged, function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
@@ -372,14 +362,27 @@ function Novoline:CreateWindow(config)
         end
     end)
 
+    -- K Keybind for Minimize/Unminimize
+    Connect(UserInputService.InputBegan, function(input, processed)
+        if processed then return end
+        if input.KeyCode == Enum.KeyCode.K then
+            Novoline.Minimized = not Novoline.Minimized
+            if Novoline.Minimized then
+                Tween(mainWindow, {Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0)}, 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+            else
+                Tween(mainWindow, {Size = UDim2.new(0, 550, 0, 450), Position = UDim2.new(0.5, -275, 0.5, -225)}, 0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+            end
+        end
+    end)
+
     -- SIDEBAR
-    sidebarArea = Create("Frame", { Name = "Sidebar", Size = UDim2.new(0, 110, 1, -57), Position = UDim2.new(0, 0, 0, 34), BackgroundColor3 = self.Scheme.SidebarColor, BorderSizePixel = 0, ZIndex = 5 }, mainWindow)
+    local sidebarArea = Create("Frame", { Name = "Sidebar", Size = UDim2.new(0, 110, 1, -57), Position = UDim2.new(0, 0, 0, 34), BackgroundColor3 = self.Scheme.SidebarColor, BorderSizePixel = 0, ZIndex = 5 }, mainWindow)
     RegisterColor(sidebarArea, "BackgroundColor3", "SidebarColor")
     Create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0) }, sidebarArea)
     Create("UIPadding", { PaddingTop = UDim.new(0, 4) }, sidebarArea)
 
     -- CONTENT AREA
-    contentArea = Create("Frame", { Name = "ContentArea", Size = UDim2.new(1, -110, 1, -57), Position = UDim2.new(0, 110, 0, 34), BackgroundColor3 = self.Scheme.BackgroundColor, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5 }, mainWindow)
+    local contentArea = Create("Frame", { Name = "ContentArea", Size = UDim2.new(1, -110, 1, -57), Position = UDim2.new(0, 110, 0, 34), BackgroundColor3 = self.Scheme.BackgroundColor, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5 }, mainWindow)
     RegisterColor(contentArea, "BackgroundColor3", "BackgroundColor")
 
     -- FOOTER
@@ -387,7 +390,7 @@ function Novoline:CreateWindow(config)
     Create("UICorner", { CornerRadius = UDim.new(0, 8) }, footer)
     RegisterColor(footer, "BackgroundColor3", "TopbarColor")
     Create("Frame", { Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 0, 0), BackgroundColor3 = self.Scheme.TopbarColor, BorderSizePixel = 0, ZIndex = 10 }, footer)
-    Create("TextLabel", { Text = (config.Footer or "") .. " | made by @thedude_whotalks For Novoline", Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, TextColor3 = self.Scheme.TextMuted, TextSize = 9, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11 }, footer)
+    Create("TextLabel", { Text = tostring(config.Footer or "") .. " | made by @thedude_whotalks For Novoline", Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, TextColor3 = self.Scheme.TextMuted, TextSize = 9, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11 }, footer)
 
     -- Custom Cursor
     if config.ShowCustomCursor ~= false then
@@ -414,30 +417,21 @@ function Novoline:CreateWindow(config)
     }, gui)
     Create("UICorner", { CornerRadius = UDim.new(0, 8) }, keybindFrame)
     Create("UIStroke", { Color = self.Scheme.OutlineColor, Thickness = 1 }, keybindFrame)
-    Create("TextLabel", { Text = "Keybinds", Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = self.Scheme.TopbarColor, TextColor3 = self.Scheme.FontColor, TextSize = 13, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold), ZIndex = 201 }, keybindFrame)
-    Create("UICorner", { CornerRadius = UDim.new(0, 8) }, keybindFrame:FindFirstChildWhichIsA("TextLabel"))
+    local kbTitle = Create("TextLabel", { Text = "Keybinds", Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = self.Scheme.TopbarColor, TextColor3 = self.Scheme.FontColor, TextSize = 13, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold), ZIndex = 201 }, keybindFrame)
+    Create("UICorner", { CornerRadius = UDim.new(0, 8) }, kbTitle)
     local keybindScroll = Create("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -35), Position = UDim2.new(0, 0, 0, 32), BackgroundTransparency = 1, ScrollBarThickness = 2, BorderSizePixel = 0, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 201 }, keybindFrame)
     Create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) }, keybindScroll)
     Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4) }, keybindScroll)
     self.KeybindFrame = keybindFrame
 
-    -- Toggle Keybind
-    Connect(UserInputService.InputBegan, function(input, processed)
-        if processed then return end
-        if self.ToggleKeybind then
-            local keyName = nil
-            if input.UserInputType == Enum.UserInputType.Keyboard then keyName = input.KeyCode.Name
-            elseif input.UserInputType.Name:find("MouseButton") then keyName = input.UserInputType.Name end
-            if keyName == self.ToggleKeybind.Value then
-                keybindFrame.Visible = not keybindFrame.Visible
-            end
-        end
-    end)
-
     local selectedTab = nil
 
-    -- ADD TAB
+    -- ADD TAB (Fixed)
     function Window:AddTab(title, icon)
+        -- Ensure title is a string
+        title = tostring(title or "Tab")
+        icon = icon or nil
+        
         local Tab = {}
         Tab.__index = Tab
         Tab.Title = title
@@ -446,17 +440,37 @@ function Novoline:CreateWindow(config)
         Tab.WarningBox = nil
 
         local tabBtn = Create("TextButton", {
-            Name = "TabBtn_" .. title, Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1,
-            Text = "  " .. title, TextColor3 = self.Scheme.TextMuted, TextSize = 11,
-            FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 6, LayoutOrder = #Window.Tabs + 1, AutoButtonColor = false
+            Name = "TabBtn_" .. title,
+            Size = UDim2.new(1, 0, 0, 28),
+            BackgroundTransparency = 1,
+            Text = "  " .. title,
+            TextColor3 = self.Scheme.TextMuted,
+            TextSize = 11,
+            FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 6,
+            LayoutOrder = #Window.Tabs + 1,
+            AutoButtonColor = false
         }, sidebarArea)
         RegisterColor(tabBtn, "TextColor3", "TextMuted")
 
-        local tabIndicator = Create("Frame", { Size = UDim2.new(0, 2, 0, 16), Position = UDim2.new(0, 0, 0.5, -8), BackgroundColor3 = self.Scheme.AccentColor, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 7 }, tabBtn)
+        local tabIndicator = Create("Frame", {
+            Size = UDim2.new(0, 2, 0, 16),
+            Position = UDim2.new(0, 0, 0.5, -8),
+            BackgroundColor3 = self.Scheme.AccentColor,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ZIndex = 7
+        }, tabBtn)
         RegisterColor(tabIndicator, "BackgroundColor3", "AccentColor")
 
-        local tabContent = Create("Frame", { Name = "TabContent_" .. title, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Visible = false, ZIndex = 5 }, contentArea)
+        local tabContent = Create("Frame", {
+            Name = "TabContent_" .. title,
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            Visible = false,
+            ZIndex = 5
+        }, contentArea)
         Create("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }, tabContent)
         Create("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, tabContent)
 
@@ -470,8 +484,8 @@ function Novoline:CreateWindow(config)
 
         function Tab:UpdateWarningBox(options)
             warningBox.Visible = options.Visible or false
-            warningTitle.Text = options.Title or ""
-            warningText.Text = options.Text or ""
+            warningTitle.Text = tostring(options.Title or "")
+            warningText.Text = tostring(options.Text or "")
             if options.Visible then
                 warningBox.Size = UDim2.new(1, -12, 0, 50)
             else
@@ -504,13 +518,13 @@ function Novoline:CreateWindow(config)
         if #Window.Tabs == 1 then SelectTab() end
 
         -- ADD GROUPBOX
-        function Tab:AddLeftGroupbox(title) return Tab:AddGroupbox(title, 0) end
-        function Tab:AddRightGroupbox(title) return Tab:AddGroupbox(title, 1) end
+        function Tab:AddLeftGroupbox(title) return Tab:AddGroupbox(tostring(title), 0) end
+        function Tab:AddRightGroupbox(title) return Tab:AddGroupbox(tostring(title), 1) end
 
         function Tab:AddGroupbox(title, side)
             local Groupbox = {}
             Groupbox.__index = Groupbox
-            Groupbox.Title = title
+            Groupbox.Title = tostring(title)
             Groupbox.Elements = {}
 
             local groupBox = Create("Frame", { Name = "GB_" .. title, Size = UDim2.new(0.5, -3, 1, 0), BackgroundColor3 = Novoline.Scheme.MainColor, BorderSizePixel = 0, LayoutOrder = side, ZIndex = 5 }, tabContent)
@@ -540,7 +554,7 @@ function Novoline:CreateWindow(config)
                 Toggle.Value = options.Default or false
                 Toggle.Callback = options.Callback or function() end
                 Toggle.ChangedCallbacks = {}
-                Toggle._SearchName = options.Text or "Toggle"
+                Toggle._SearchName = tostring(options.Text or "Toggle")
                 Toggle._OriginalVisible = options.Visible ~= false
                 if options.Key then idx = options.Key end
                 Novoline.Toggles[idx] = Toggle
@@ -548,7 +562,7 @@ function Novoline:CreateWindow(config)
                 local toggleFrame = Create("Frame", { Name = "Toggle_" .. idx, Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, ZIndex = 7, LayoutOrder = #Groupbox.Elements + 1 }, scrollFrame)
                 toggleFrame.Visible = Toggle._OriginalVisible
 
-                local toggleLabel = Create("TextLabel", { Text = options.Text or "Toggle", Size = UDim2.new(1, -42, 1, 0), BackgroundTransparency = 1, TextColor3 = options.Risky and Novoline.Scheme.Red or Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, toggleFrame)
+                local toggleLabel = Create("TextLabel", { Text = tostring(options.Text or "Toggle"), Size = UDim2.new(1, -42, 1, 0), BackgroundTransparency = 1, TextColor3 = options.Risky and Novoline.Scheme.Red or Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, toggleFrame)
                 RegisterColor(toggleLabel, "TextColor3", "FontColor")
                 if options.Tooltip then CreateTooltip(toggleFrame, options.Tooltip) end
 
@@ -577,10 +591,7 @@ function Novoline:CreateWindow(config)
                 function Toggle:OnChanged(callback) table.insert(Toggle.ChangedCallbacks, callback) end
                 function Toggle:SetVisible(visible) Toggle._OriginalVisible = visible; toggleFrame.Visible = visible end
 
-                if options.Disabled then
-                    toggleLabel.TextColor3 = Novoline.Scheme.TextMuted
-                    toggleBg.BackgroundTransparency = 0.5
-                else
+                if not options.Disabled then
                     toggleFrame.InputBegan:Connect(function(input)
                         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                             Toggle:SetValue(not Toggle.Value)
@@ -594,7 +605,6 @@ function Novoline:CreateWindow(config)
                 table.insert(Novoline.Elements, Toggle)
                 Groupbox.Elements[#Groupbox.Elements + 1] = Toggle
 
-                -- ADD COLOR PICKER CHAIN
                 function Toggle:AddColorPicker(cpIdx, cpOptions)
                     cpOptions = cpOptions or {}
                     if type(cpIdx) ~= "string" then cpOptions = cpIdx; cpIdx = "ColorPicker_" .. math.random(1000, 9999) end
@@ -632,7 +642,7 @@ function Novoline:CreateWindow(config)
                 Checkbox.Value = options.Default or false
                 Checkbox.Callback = options.Callback or function() end
                 Checkbox.ChangedCallbacks = {}
-                Checkbox._SearchName = options.Text or "Checkbox"
+                Checkbox._SearchName = tostring(options.Text or "Checkbox")
                 Checkbox._OriginalVisible = options.Visible ~= false
                 Novoline.Toggles[idx] = Checkbox
 
@@ -643,7 +653,7 @@ function Novoline:CreateWindow(config)
                 Create("UICorner", { CornerRadius = UDim.new(0, 2) }, cbBox)
                 local cbCheck = Create("TextLabel", { Text = "", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold), ZIndex = 9 }, cbBox)
 
-                Create("TextLabel", { Text = options.Text or "Checkbox", Size = UDim2.new(1, -20, 1, 0), Position = UDim2.new(0, 20, 0, 0), BackgroundTransparency = 1, TextColor3 = options.Risky and Novoline.Scheme.Red or Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, cbFrame)
+                Create("TextLabel", { Text = tostring(options.Text or "Checkbox"), Size = UDim2.new(1, -20, 1, 0), Position = UDim2.new(0, 20, 0, 0), BackgroundTransparency = 1, TextColor3 = options.Risky and Novoline.Scheme.Red or Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, cbFrame)
                 if options.Tooltip then CreateTooltip(cbFrame, options.Tooltip) end
 
                 local function UpdateCBVisual()
@@ -676,7 +686,7 @@ function Novoline:CreateWindow(config)
                 Button.Type = "Button"
                 Button.Callback = options.Func or options.Callback or function() end
                 Button.ChangedCallbacks = {}
-                Button._SearchName = options.Text or "Button"
+                Button._SearchName = tostring(options.Text or "Button")
                 Button._OriginalVisible = options.Visible ~= false
                 local doubleClick = options.DoubleClick or false
                 local lastClick = 0
@@ -684,15 +694,12 @@ function Novoline:CreateWindow(config)
                 local btnFrame = Create("Frame", { Name = "Button", Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, ZIndex = 7, LayoutOrder = #Groupbox.Elements + 1 }, scrollFrame)
                 btnFrame.Visible = Button._OriginalVisible
 
-                local btn = Create("TextButton", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Novoline.Scheme.AccentColor, BorderSizePixel = 0, Text = options.Text or "Button", TextColor3 = options.Risky and Color3.fromRGB(255, 200, 200) or Color3.fromRGB(255, 255, 255), TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Medium), ZIndex = 8, AutoButtonColor = false }, btnFrame)
+                local btn = Create("TextButton", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Novoline.Scheme.AccentColor, BorderSizePixel = 0, Text = tostring(options.Text or "Button"), TextColor3 = options.Risky and Color3.fromRGB(255, 200, 200) or Color3.fromRGB(255, 255, 255), TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Medium), ZIndex = 8, AutoButtonColor = false }, btnFrame)
                 Create("UICorner", { CornerRadius = UDim.new(0, 4) }, btn)
                 RegisterColor(btn, "BackgroundColor3", "AccentColor")
                 if options.Tooltip then CreateTooltip(btn, options.Tooltip) end
 
-                if options.Disabled then
-                    btn.BackgroundTransparency = 0.5
-                    btn.TextColor3 = Novoline.Scheme.TextMuted
-                else
+                if not options.Disabled then
                     btn.MouseEnter:Connect(function() Tween(btn, {BackgroundColor3 = LightenColor(Novoline.Scheme.AccentColor, 0.12)}, 0.1) end)
                     btn.MouseLeave:Connect(function() Tween(btn, {BackgroundColor3 = Novoline.Scheme.AccentColor}, 0.1) end)
                     btn.MouseButton1Click:Connect(function()
@@ -715,13 +722,13 @@ function Novoline:CreateWindow(config)
                     local SubButton = {}
                     SubButton.Type = "Button"
                     SubButton.Callback = subOptions.Func or subOptions.Callback or function() end
-                    SubButton._SearchName = subOptions.Text or "Button"
+                    SubButton._SearchName = tostring(subOptions.Text or "Button")
                     SubButton._OriginalVisible = subOptions.Visible ~= false
 
                     local subFrame = Create("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, ZIndex = 7, LayoutOrder = #Groupbox.Elements + 1 }, scrollFrame)
                     subFrame.Visible = SubButton._OriginalVisible
 
-                    local subBtn = Create("TextButton", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Novoline.Scheme.HoverColor, BorderSizePixel = 0, Text = subOptions.Text or "Button", TextColor3 = Novoline.Scheme.FontColor, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), ZIndex = 8, AutoButtonColor = false }, subFrame)
+                    local subBtn = Create("TextButton", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Novoline.Scheme.HoverColor, BorderSizePixel = 0, Text = tostring(subOptions.Text or "Button"), TextColor3 = Novoline.Scheme.FontColor, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), ZIndex = 8, AutoButtonColor = false }, subFrame)
                     Create("UICorner", { CornerRadius = UDim.new(0, 4) }, subBtn)
                     if subOptions.Tooltip then CreateTooltip(subBtn, subOptions.Tooltip) end
 
@@ -764,7 +771,7 @@ function Novoline:CreateWindow(config)
 
                 local Label = {}
                 Label.Type = "Label"
-                Label.Value = options.Text or "Label"
+                Label.Value = tostring(options.Text or "Label")
                 Label.ChangedCallbacks = {}
                 Label._SearchName = Label.Value
                 Label._OriginalVisible = true
@@ -774,11 +781,10 @@ function Novoline:CreateWindow(config)
                 local label = Create("TextLabel", { Text = Label.Value, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = options.Size or 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = options.DoesWrap and Enum.TextTruncate.None or Enum.TextTruncate.AtEnd, TextWrapped = options.DoesWrap or false, ZIndex = 8 }, labelFrame)
                 RegisterColor(label, "TextColor3", "FontColor")
 
-                function Label:SetText(text) Label.Value = text; Label._SearchName = text; label.Text = text; for _, cb in ipairs(Label.ChangedCallbacks) do cb(text) end end
+                function Label:SetText(text) Label.Value = tostring(text); Label._SearchName = Label.Value; label.Text = Label.Value; for _, cb in ipairs(Label.ChangedCallbacks) do cb(Label.Value) end end
                 function Label:OnChanged(callback) table.insert(Label.ChangedCallbacks, callback) end
                 function Label:SetVisible(visible) Label._OriginalVisible = visible; labelFrame.Visible = visible end
 
-                -- ADD COLOR PICKER CHAIN
                 function Label:AddColorPicker(cpIdx, cpOptions)
                     cpOptions = cpOptions or {}
                     if type(cpIdx) ~= "string" then cpOptions = cpIdx; cpIdx = "ColorPicker_" .. math.random(1000, 9999) end
@@ -802,7 +808,6 @@ function Novoline:CreateWindow(config)
                     return cp
                 end
 
-                -- ADD KEY PICKER CHAIN
                 function Label:AddKeyPicker(kpIdx, kpOptions)
                     kpOptions = kpOptions or {}
                     if type(kpIdx) ~= "string" then kpOptions = kpIdx; kpIdx = "KeyPicker_" .. math.random(1000, 9999) end
@@ -837,8 +842,8 @@ function Novoline:CreateWindow(config)
                 Slider.Rounding = options.Rounding or 1
                 Slider.Callback = options.Callback or function() end
                 Slider.ChangedCallbacks = {}
-                Slider.Suffix = options.Suffix or ""
-                Slider._SearchName = options.Text or "Slider"
+                Slider.Suffix = tostring(options.Suffix or "")
+                Slider._SearchName = tostring(options.Text or "Slider")
                 Slider._OriginalVisible = options.Visible ~= false
                 Novoline.Options[idx] = Slider
 
@@ -847,7 +852,7 @@ function Novoline:CreateWindow(config)
 
                 if not options.Compact then
                     local sliderHeader = Create("Frame", { Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, ZIndex = 8 }, sliderFrame)
-                    Create("TextLabel", { Text = options.Text or "Slider", Size = UDim2.new(0.6, 0, 1, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 9 }, sliderHeader)
+                    Create("TextLabel", { Text = tostring(options.Text or "Slider"), Size = UDim2.new(0.6, 0, 1, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 9 }, sliderHeader)
                 end
 
                 local sliderValueLabel = Create("TextLabel", { Text = Round(Slider.Value, Slider.Rounding) .. (options.HideMax and Slider.Suffix or (" / " .. Slider.Max .. Slider.Suffix)), Size = UDim2.new(options.Compact and 1 or 0.4, 0, options.Compact and 1 or 1, 0), Position = options.Compact and UDim2.new(0, 0, 0, 0) or UDim2.new(0.6, 0, 0, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.AccentColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Medium), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 9 }, sliderFrame)
@@ -912,17 +917,17 @@ function Novoline:CreateWindow(config)
 
                 local Input = {}
                 Input.Type = "Input"
-                Input.Value = options.Default or ""
+                Input.Value = tostring(options.Default or "")
                 Input.Callback = options.Callback or function() end
                 Input.ChangedCallbacks = {}
-                Input._SearchName = options.Text or "Input"
+                Input._SearchName = tostring(options.Text or "Input")
                 Input._OriginalVisible = true
                 Novoline.Options[idx] = Input
 
                 local inputFrame = Create("Frame", { Name = "Input_" .. idx, Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, ZIndex = 7, LayoutOrder = #Groupbox.Elements + 1 }, scrollFrame)
                 inputFrame.Visible = Input._OriginalVisible
-                Create("TextLabel", { Text = options.Text or "Input", Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, inputFrame)
-                local inputBox = Create("TextBox", { Size = UDim2.new(1, 0, 0, 18), Position = UDim2.new(0, 0, 0, 18), BackgroundColor3 = Novoline.Scheme.InputColor, BorderSizePixel = 0, Text = Input.Value, PlaceholderText = options.Placeholder or "", PlaceholderColor3 = Novoline.Scheme.TextMuted, TextColor3 = Novoline.Scheme.FontColor, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), ClearTextOnFocus = options.ClearTextOnFocus ~= false, ZIndex = 8 }, inputFrame)
+                Create("TextLabel", { Text = tostring(options.Text or "Input"), Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, inputFrame)
+                local inputBox = Create("TextBox", { Size = UDim2.new(1, 0, 0, 18), Position = UDim2.new(0, 0, 0, 18), BackgroundColor3 = Novoline.Scheme.InputColor, BorderSizePixel = 0, Text = Input.Value, PlaceholderText = tostring(options.Placeholder or ""), PlaceholderColor3 = Novoline.Scheme.TextMuted, TextColor3 = Novoline.Scheme.FontColor, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), ClearTextOnFocus = options.ClearTextOnFocus ~= false, ZIndex = 8 }, inputFrame)
                 Create("UICorner", { CornerRadius = UDim.new(0, 4) }, inputBox)
                 Create("UIPadding", { PaddingLeft = UDim.new(0, 8) }, inputBox)
                 if options.Tooltip then CreateTooltip(inputFrame, options.Tooltip) end
@@ -940,7 +945,7 @@ function Novoline:CreateWindow(config)
                     for _, cb in ipairs(Input.ChangedCallbacks) do cb(Input.Value) end
                 end)
 
-                function Input:SetValue(value) Input.Value = value; inputBox.Text = value; Input.Callback(value); for _, cb in ipairs(Input.ChangedCallbacks) do cb(value) end end
+                function Input:SetValue(value) Input.Value = tostring(value); inputBox.Text = Input.Value; Input.Callback(Input.Value); for _, cb in ipairs(Input.ChangedCallbacks) do cb(Input.Value) end end
                 function Input:OnChanged(callback) table.insert(Input.ChangedCallbacks, callback) end
                 function Input:SetVisible(visible) Input._OriginalVisible = visible; inputFrame.Visible = visible end
 
@@ -968,7 +973,7 @@ function Novoline:CreateWindow(config)
                 Dropdown.FormatDisplayValue = options.FormatDisplayValue or nil
                 Dropdown.DisabledValues = options.DisabledValues or {}
                 Dropdown.MaxVisibleDropdownItems = options.MaxVisibleDropdownItems or 8
-                Dropdown._SearchName = options.Text or "Dropdown"
+                Dropdown._SearchName = tostring(options.Text or "Dropdown")
                 Dropdown._OriginalVisible = options.Visible ~= false
                 Novoline.Options[idx] = Dropdown
 
@@ -990,7 +995,7 @@ function Novoline:CreateWindow(config)
                 local ddFrame = Create("Frame", { Name = "Dropdown_" .. idx, Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, ZIndex = 7, LayoutOrder = #Groupbox.Elements + 1 }, scrollFrame)
                 ddFrame.Visible = Dropdown._OriginalVisible
 
-                local displayValue = Dropdown.Multi and "Select..." or (Dropdown.FormatDisplayValue and Dropdown.FormatDisplayValue(Dropdown.Value) or Dropdown.Value or options.Text or "Dropdown")
+                local displayValue = Dropdown.Multi and "Select..." or (Dropdown.FormatDisplayValue and Dropdown.FormatDisplayValue(Dropdown.Value) or Dropdown.Value or tostring(options.Text or "Dropdown"))
                 local ddBtn = Create("TextButton", { Size = UDim2.new(1, 0, 0, 20), BackgroundColor3 = Novoline.Scheme.InputColor, BorderSizePixel = 0, Text = displayValue, TextColor3 = Novoline.Scheme.FontColor, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8, AutoButtonColor = false }, ddFrame)
                 Create("UICorner", { CornerRadius = UDim.new(0, 4) }, ddBtn)
                 Create("UIPadding", { PaddingLeft = UDim.new(0, 8) }, ddBtn)
@@ -1120,8 +1125,7 @@ function Novoline:CreateWindow(config)
                 end
 
                 function Dropdown:OnChanged(callback) table.insert(Dropdown.ChangedCallbacks, callback) end
-                function Dropdown:SetVisible(visible) Dropdown._OriginalVisible = visible; ddFrame.Visible = visible; if not visible then ddList.Visible = false end
-                end
+                function Dropdown:SetVisible(visible) Dropdown._OriginalVisible = visible; ddFrame.Visible = visible; if not visible then ddList.Visible = false end end
                 function Dropdown:Refresh(values) Dropdown.Values = values or {}; CreateOptions() end
 
                 Dropdown.Frame = ddFrame
@@ -1143,7 +1147,7 @@ function Novoline:CreateWindow(config)
                 ColorPicker.Transparency = options.Transparency or nil
                 ColorPicker.Callback = options.Callback or function() end
                 ColorPicker.ChangedCallbacks = {}
-                ColorPicker._SearchName = options.Text or options.Title or "ColorPicker"
+                ColorPicker._SearchName = tostring(options.Text or options.Title or "ColorPicker")
                 ColorPicker._OriginalVisible = true
                 Novoline.Options[idx] = ColorPicker
 
@@ -1151,22 +1155,25 @@ function Novoline:CreateWindow(config)
                 cpFrame.Visible = ColorPicker._OriginalVisible
 
                 if options.Text and options.Text ~= "" then
-                    Create("TextLabel", { Text = options.Text, Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, cpFrame)
+                    Create("TextLabel", { Text = tostring(options.Text), Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, cpFrame)
                 end
 
                 local colorPreview = Create("TextButton", { Size = UDim2.new(1, 0, 0, 18), Position = UDim2.new(0, 0, 0, options.Text and 18 or 0), BackgroundColor3 = ColorPicker.Value, BorderSizePixel = 0, Text = "", ZIndex = 8, AutoButtonColor = false }, cpFrame)
                 Create("UICorner", { CornerRadius = UDim.new(0, 4) }, colorPreview)
 
-                local cpPopup = Create("Frame", { BackgroundColor3 = Novoline.Scheme.MainColor, BorderSizePixel = 0, Visible = false, ZIndex = 100, Size = UDim2.new(0, 190, 0, ColorPicker.Transparency ~= nil and 170 or 148) }, popupContainer)
+                local yOff = ColorPicker.Transparency ~= nil and 170 or 148
+                local cpPopup = Create("Frame", { BackgroundColor3 = Novoline.Scheme.MainColor, BorderSizePixel = 0, Visible = false, ZIndex = 100, Size = UDim2.new(0, 190, 0, yOff) }, popupContainer)
                 Create("UICorner", { CornerRadius = UDim.new(0, 6) }, cpPopup)
                 Create("UIStroke", { Color = Novoline.Scheme.OutlineColor, Thickness = 1 }, cpPopup)
 
                 local sbBox = Create("Frame", { Size = UDim2.new(1, -10, 0, 100), Position = UDim2.new(0, 5, 0, 5), BackgroundColor3 = Color3.fromHSV(0, 1, 1), BorderSizePixel = 0, ZIndex = 101, ClipsDescendants = true }, cpPopup)
                 Create("UICorner", { CornerRadius = UDim.new(0, 4) }, sbBox)
-                Create("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 102 }, sbBox)
-                Create("UIGradient", { Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1)), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)}) }, sbBox:FindFirstChildWhichIsA("Frame"))
-                Create("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ZIndex = 103 }, sbBox)
-                Create("UIGradient", { Color = ColorSequence.new(Color3.new(0, 0, 0), Color3.new(0, 0, 0)), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)}), Rotation = 90 }, sbBox:FindFirstChildWhichIsA("Frame", true):FindFirstChildOfClass("UIGradient") or sbBox:FindFirstChildWhichIsA("Frame", true))
+                
+                local whiteOv = Create("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 102 }, sbBox)
+                Create("UIGradient", { Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1)), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)}) }, whiteOv)
+                local blackOv = Create("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ZIndex = 103 }, sbBox)
+                Create("UIGradient", { Color = ColorSequence.new(Color3.new(0, 0, 0), Color3.new(0, 0, 0)), Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)}), Rotation = 90 }, blackOv)
+                
                 local sbCursor = Create("Frame", { Size = UDim2.new(0, 8, 0, 8), Position = UDim2.new(0, -4, 0, -4), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 1, BorderColor3 = Color3.new(0, 0, 0), ZIndex = 105 }, sbBox)
 
                 local hueSlider = Create("Frame", { Size = UDim2.new(1, -10, 0, 12), Position = UDim2.new(0, 5, 0, 110), BackgroundColor3 = Color3.new(1, 0, 0), BorderSizePixel = 0, ZIndex = 101 }, cpPopup)
@@ -1176,18 +1183,19 @@ function Novoline:CreateWindow(config)
 
                 local transSlider = nil
                 local transCursor = nil
-                local yOff = 128
+                local hexYOff = 128
+                
                 if ColorPicker.Transparency ~= nil then
-                    transSlider = Create("Frame", { Size = UDim2.new(1, -10, 0, 12), Position = UDim2.new(0, 5, 0, yOff), BackgroundColor3 = Color3.fromRGB(30, 30, 42), BorderSizePixel = 0, ZIndex = 101 }, cpPopup)
+                    transSlider = Create("Frame", { Size = UDim2.new(1, -10, 0, 12), Position = UDim2.new(0, 5, 0, hexYOff), BackgroundColor3 = Color3.fromRGB(30, 30, 42), BorderSizePixel = 0, ZIndex = 101 }, cpPopup)
                     Create("UICorner", { CornerRadius = UDim.new(1, 0) }, transSlider)
                     local transFill = Create("Frame", { Size = UDim2.new(1 - ColorPicker.Transparency, 0, 1, 0), BackgroundColor3 = ColorPicker.Value, BorderSizePixel = 0, ZIndex = 102 }, transSlider)
                     transCursor = Create("Frame", { Size = UDim2.new(0, 6, 0, 16), Position = UDim2.new(1 - ColorPicker.Transparency, -3, 0.5, -8), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 1, BorderColor3 = Color3.new(0, 0, 0), ZIndex = 103 }, transSlider)
-                    yOff = yOff + 16
+                    hexYOff = hexYOff + 16
                 end
 
-                local hexInput = Create("TextBox", { Size = UDim2.new(0.5, -8, 0, 16), Position = UDim2.new(0, 5, 0, yOff), BackgroundColor3 = Novoline.Scheme.InputColor, BorderSizePixel = 0, Text = Color3ToHex(ColorPicker.Value), TextColor3 = Novoline.Scheme.FontColor, TextSize = 9, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold), ZIndex = 101, ClearTextOnFocus = false }, cpPopup)
+                local hexInput = Create("TextBox", { Size = UDim2.new(0.5, -8, 0, 16), Position = UDim2.new(0, 5, 0, hexYOff), BackgroundColor3 = Novoline.Scheme.InputColor, BorderSizePixel = 0, Text = Color3ToHex(ColorPicker.Value), TextColor3 = Novoline.Scheme.FontColor, TextSize = 9, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold), ZIndex = 101, ClearTextOnFocus = false }, cpPopup)
                 Create("UICorner", { CornerRadius = UDim.new(0, 3) }, hexInput)
-                local rgbInput = Create("TextBox", { Size = UDim2.new(0.5, -8, 0, 16), Position = UDim2.new(0.5, 3, 0, yOff), BackgroundColor3 = Novoline.Scheme.InputColor, BorderSizePixel = 0, Text = string.format("%d, %d, %d", math.floor(ColorPicker.Value.R * 255), math.floor(ColorPicker.Value.G * 255), math.floor(ColorPicker.Value.B * 255)), TextColor3 = Novoline.Scheme.FontColor, TextSize = 9, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold), ZIndex = 101, ClearTextOnFocus = false }, cpPopup)
+                local rgbInput = Create("TextBox", { Size = UDim2.new(0.5, -8, 0, 16), Position = UDim2.new(0.5, 3, 0, hexYOff), BackgroundColor3 = Novoline.Scheme.InputColor, BorderSizePixel = 0, Text = string.format("%d, %d, %d", math.floor(ColorPicker.Value.R * 255), math.floor(ColorPicker.Value.G * 255), math.floor(ColorPicker.Value.B * 255)), TextColor3 = Novoline.Scheme.FontColor, TextSize = 9, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold), ZIndex = 101, ClearTextOnFocus = false }, cpPopup)
                 Create("UICorner", { CornerRadius = UDim.new(0, 3) }, rgbInput)
 
                 local hue, sat, val = Color3ToHSV(ColorPicker.Value)
@@ -1200,7 +1208,7 @@ function Novoline:CreateWindow(config)
                     sbBox.BackgroundColor3 = HSVToColor3(hue, 1, 1)
                     hexInput.Text = Color3ToHex(color)
                     rgbInput.Text = string.format("%d, %d, %d", math.floor(color.R * 255), math.floor(color.G * 255), math.floor(color.B * 255))
-                    if transFill then transFill.BackgroundColor3 = color end
+                    if transSlider then transSlider:FindFirstChildOfClass("Frame").BackgroundColor3 = color end
                     ColorPicker.Callback(color)
                     for _, cb in ipairs(ColorPicker.ChangedCallbacks) do cb(color) end
                 end
@@ -1230,7 +1238,7 @@ function Novoline:CreateWindow(config)
                             transDragging = true
                             ColorPicker.Transparency = 1 - Clamp((input.Position.X - transSlider.AbsolutePosition.X) / transSlider.AbsoluteSize.X, 0, 1)
                             transCursor.Position = UDim2.new(1 - ColorPicker.Transparency, -3, 0.5, -8)
-                            if transFill then transFill.Size = UDim2.new(1 - ColorPicker.Transparency, 0, 1, 0) end
+                            if transSlider:FindFirstChildOfClass("Frame") then transSlider:FindFirstChildOfClass("Frame").Size = UDim2.new(1 - ColorPicker.Transparency, 0, 1, 0) end
                         end
                     end)
                     transSlider.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then transDragging = false end end)
@@ -1244,7 +1252,7 @@ function Novoline:CreateWindow(config)
                     elseif transDragging and transSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
                         ColorPicker.Transparency = 1 - Clamp((input.Position.X - transSlider.AbsolutePosition.X) / transSlider.AbsoluteSize.X, 0, 1)
                         transCursor.Position = UDim2.new(1 - ColorPicker.Transparency, -3, 0.5, -8)
-                        if transFill then transFill.Size = UDim2.new(1 - ColorPicker.Transparency, 0, 1, 0) end
+                        if transSlider:FindFirstChildOfClass("Frame") then transSlider:FindFirstChildOfClass("Frame").Size = UDim2.new(1 - ColorPicker.Transparency, 0, 1, 0) end
                     end
                 end)
 
@@ -1269,7 +1277,7 @@ function Novoline:CreateWindow(config)
                 end)
 
                 function ColorPicker:SetValue(color)
-                    ColorPicker.Value = color; hue, sat, val = Color3ToHSV(color); colorPreview.BackgroundColor3 = color; sbBox.BackgroundColor3 = HSVToColor3(hue, 1, 1); hexInput.Text = Color3ToHex(color); rgbInput.Text = string.format("%d, %d, %d", math.floor(color.R * 255), math.floor(color.G * 255), math.floor(color.B * 255)); if transFill then transFill.BackgroundColor3 = color end; UpdateCursors(); ColorPicker.Callback(color); for _, cb in ipairs(ColorPicker.ChangedCallbacks) do cb(color) end
+                    ColorPicker.Value = color; hue, sat, val = Color3ToHSV(color); colorPreview.BackgroundColor3 = color; sbBox.BackgroundColor3 = HSVToColor3(hue, 1, 1); hexInput.Text = Color3ToHex(color); rgbInput.Text = string.format("%d, %d, %d", math.floor(color.R * 255), math.floor(color.G * 255), math.floor(color.B * 255)); if transSlider and transSlider:FindFirstChildOfClass("Frame") then transSlider:FindFirstChildOfClass("Frame").BackgroundColor3 = color end; UpdateCursors(); ColorPicker.Callback(color); for _, cb in ipairs(ColorPicker.ChangedCallbacks) do cb(color) end
                 end
                 function ColorPicker:SetValueRGB(color) ColorPicker:SetValue(color) end
                 function ColorPicker:OnChanged(callback) table.insert(ColorPicker.ChangedCallbacks, callback) end
@@ -1296,7 +1304,7 @@ function Novoline:CreateWindow(config)
                     KeyPicker.Value = defaultValue[1] or "None"
                     KeyPicker.Mode = defaultValue[2] or options.Mode or "Toggle"
                 else
-                    KeyPicker.Value = defaultValue
+                    KeyPicker.Value = tostring(defaultValue)
                     KeyPicker.Mode = options.Mode or "Toggle"
                 end
                 KeyPicker.Callback = options.Callback or function() end
@@ -1306,7 +1314,7 @@ function Novoline:CreateWindow(config)
                 KeyPicker.HoldState = false
                 KeyPicker.ToggleState = false
                 KeyPicker.SyncToggle = options.SyncToggleState and options.SyncToggle or nil
-                KeyPicker._SearchName = options.Text or "KeyPicker"
+                KeyPicker._SearchName = tostring(options.Text or "KeyPicker")
                 KeyPicker._OriginalVisible = options.NoUI ~= true
                 KeyPicker.NoUI = options.NoUI or false
                 Novoline.Options[idx] = KeyPicker
@@ -1318,16 +1326,15 @@ function Novoline:CreateWindow(config)
                 local kpFrame = Create("Frame", { Name = "KeyPicker_" .. idx, Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, ZIndex = 7, LayoutOrder = #Groupbox.Elements + 1 }, scrollFrame)
                 kpFrame.Visible = KeyPicker._OriginalVisible
 
-                Create("TextLabel", { Text = options.Text or "Keybind", Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, kpFrame)
+                Create("TextLabel", { Text = tostring(options.Text or "Keybind"), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 11, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8 }, kpFrame)
                 local kpBtn = Create("TextButton", { Size = UDim2.new(0.5, -5, 0, 16), Position = UDim2.new(0.5, 5, 0.5, -8), BackgroundColor3 = Novoline.Scheme.InputColor, BorderSizePixel = 0, Text = KeyPicker.Value, TextColor3 = Novoline.Scheme.FontColor, TextSize = 9, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), ZIndex = 8, AutoButtonColor = false }, kpFrame)
                 Create("UICorner", { CornerRadius = UDim.new(0, 3) }, kpBtn)
                 RegisterColor(kpBtn, "TextColor3", "FontColor")
 
-                -- Add to keybind frame if ShowToggleFrameInKeybinds
                 if Novoline.ShowToggleFrameInKeybinds and not KeyPicker.NoUI then
                     local kbEntry = Create("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = Novoline.Scheme.MainColor, BorderSizePixel = 0, ZIndex = 202 }, keybindScroll)
                     Create("UICorner", { CornerRadius = UDim.new(0, 4) }, kbEntry)
-                    Create("TextLabel", { Text = options.Text or "Keybind", Size = UDim2.new(0.6, 0, 1, 0), Position = UDim2.new(0, 8, 0, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 203 }, kbEntry)
+                    Create("TextLabel", { Text = tostring(options.Text or "Keybind"), Size = UDim2.new(0.6, 0, 1, 0), Position = UDim2.new(0, 8, 0, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.FontColor, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 203 }, kbEntry)
                     local kbValue = Create("TextLabel", { Text = KeyPicker.Value .. " [" .. KeyPicker.Mode .. "]", Size = UDim2.new(0.4, 0, 1, 0), Position = UDim2.new(0.6, 0, 0, 0), BackgroundTransparency = 1, TextColor3 = Novoline.Scheme.AccentColor, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Medium), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 203 }, kbEntry)
                     KeyPicker._kbValue = kbValue
                 end
@@ -1348,7 +1355,6 @@ function Novoline:CreateWindow(config)
                         kpBtn.Text = KeyPicker.Value; kpBtn.TextColor3 = Novoline.Scheme.FontColor; waitingForKey = false
                         if KeyPicker._kbValue then KeyPicker._kbValue.Text = KeyPicker.Value .. " [" .. KeyPicker.Mode .. "]" end
                         KeyPicker.ChangedCallback(KeyPicker.Value)
-                        KeyPicker.ChangedCallbacks(KeyPicker.Value)
                         for _, cb in ipairs(KeyPicker.ChangedCallbacks) do cb(KeyPicker.Value) end
                         return
                     end
@@ -1389,7 +1395,7 @@ function Novoline:CreateWindow(config)
 
                 function KeyPicker:SetValue(value)
                     if type(value) == "table" then KeyPicker.Value = value[1] or "None"; KeyPicker.Mode = value[2] or "Toggle"
-                    else KeyPicker.Value = value end
+                    else KeyPicker.Value = tostring(value) end
                     kpBtn.Text = KeyPicker.Value
                     if KeyPicker._kbValue then KeyPicker._kbValue.Text = KeyPicker.Value .. " [" .. KeyPicker.Mode .. "]" end
                     KeyPicker.ChangedCallback(KeyPicker.Value)
@@ -1416,7 +1422,7 @@ function Novoline:CreateWindow(config)
                 local tabBtnContainer = Create("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = Novoline.Scheme.SidebarColor, BorderSizePixel = 0, ZIndex = 6 }, tabboxFrame)
                 Create("UICorner", { CornerRadius = UDim.new(0, 6) }, tabBtnContainer)
                 Create("Frame", { Size = UDim2.new(1, 0, 0, 8), Position = UDim2.new(0, 0, 1, -8), BackgroundColor3 = Novoline.Scheme.SidebarColor, BorderSizePixel = 0, ZIndex = 6 }, tabBtnContainer)
-                local tabBtnList = Create("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder }, tabBtnContainer)
+                Create("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder }, tabBtnContainer)
                 Create("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingTop = UDim.new(0, 4) }, tabBtnContainer)
 
                 local tabContentContainer = Create("Frame", { Size = UDim2.new(1, 0, 1, -24), Position = UDim2.new(0, 0, 0, 24), BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 6 }, tabboxFrame)
@@ -1430,9 +1436,9 @@ function Novoline:CreateWindow(config)
                 function TabBox:AddTab(title)
                     local TabTab = {}
                     TabTab.__index = TabTab
-                    TabTab.Title = title
+                    TabTab.Title = tostring(title)
 
-                    local tabBtn = Create("TextButton", { Size = UDim2.new(0, 60, 0, 20), BackgroundColor3 = Color3.fromRGB(35, 35, 50), BorderSizePixel = 0, Text = title, TextColor3 = Novoline.Scheme.TextMuted, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), ZIndex = 7, LayoutOrder = #TabBox.Tabs + 1, AutoButtonColor = false }, tabBtnContainer)
+                    local tabBtn = Create("TextButton", { Size = UDim2.new(0, 60, 0, 20), BackgroundColor3 = Color3.fromRGB(35, 35, 50), BorderSizePixel = 0, Text = TabTab.Title, TextColor3 = Novoline.Scheme.TextMuted, TextSize = 10, FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json"), ZIndex = 7, LayoutOrder = #TabBox.Tabs + 1, AutoButtonColor = false }, tabBtnContainer)
                     Create("UICorner", { CornerRadius = UDim.new(0, 4) }, tabBtn)
 
                     local tabContent = Create("ScrollingFrame", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScrollBarThickness = 2, BorderSizePixel = 0, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false, ZIndex = 7 }, tabContentContainer)
@@ -1457,7 +1463,6 @@ function Novoline:CreateWindow(config)
                     TabBox.Tabs[#TabBox.Tabs + 1] = TabTab
                     if #TabBox.Tabs == 1 then SelectTabTab() end
 
-                    -- Copy all Groupbox methods to TabTab
                     TabTab.Container = tabContent
                     for k, v in pairs(Groupbox) do
                         if type(v) == "function" and k ~= "AddLeftTabbox" and k ~= "AddRightTabbox" then
@@ -1515,8 +1520,7 @@ function Novoline:CreateWindow(config)
 
     -- ADD KEY TAB (special tab for key system)
     function Window:AddKeyTab(title)
-        local tab = Window:AddTab(title)
-        return tab
+        return Window:AddTab(tostring(title or "Key System"))
     end
 
     Window.Tabs = Window.Tabs
