@@ -16,7 +16,7 @@ local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Holex
     return getgenv().Novoline or {}
 end)()
 
-local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/your-repo/Novoline/main/addons/ThemeManager.lua"))() or
+local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/HolexDeveloper/NovolineUILibrary/refs/heads/main/ThemeManager.lua"))() or
 (function()
     return getgenv().NovolineThemeManager or {}
 end)()
